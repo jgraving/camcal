@@ -2,7 +2,7 @@ import numpy as np
 import cv2
 import pickle
 
-def calibrate_camera_still(calib_images,  grid_size = (6,9), imshow = True, delay = 500):
+def calibrate_camera_still(calib_images,  grid_size = (9,6), imshow = True, delay = 500):
 
 	""" Returns calibration parameters from calibration images
 
@@ -28,8 +28,8 @@ def calibrate_camera_still(calib_images,  grid_size = (6,9), imshow = True, dela
 	criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.001)
 
 	# prepare object points, like (0,0,0), (1,0,0), (2,0,0) ....,(6,5,0)
-	objp = np.zeros((grid_size[0]*grid_size[1],3), np.float32)
-	objp[:,:2] = np.mgrid[0:grid_size[1],0:grid_size[0]].T.reshape(-1,2)
+	objp = np.zeros((grid_size[1]*grid_size[0],3), np.float32)
+	objp[:,:2] = np.mgrid[0:grid_size[0],0:grid_size[1]].T.reshape(-1,2)
 
 	# Arrays to store object points and image points from all the images.
 	objpoints = [] # 3d point in real world space
@@ -44,8 +44,9 @@ def calibrate_camera_still(calib_images,  grid_size = (6,9), imshow = True, dela
 			gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
 			# Find the chess board corners
-			ret, corners = cv2.findChessboardCorners(gray, grid_size, None)
-
+			ret, corners = cv2.findChessboardCorners(gray, grid_size, None, flags = (cv2.CALIB_CB_ADAPTIVE_THRESH))
+			#ret, corners = cv2.findCirclesGrid(gray, grid_size, None, flags = (cv2.CALIB_CB_ASYMMETRIC_GRID))
+			
 			# If found, add object points, image points (after refining them)
 			if ret == True:
 				objpoints.append(objp)
@@ -59,7 +60,7 @@ def calibrate_camera_still(calib_images,  grid_size = (6,9), imshow = True, dela
 			if imshow == True:
 				cv2.imshow('img',img)
 				cv2.waitKey(delay)
-
+				
 	if imshow == True:
 		cv2.destroyAllWindows()
 		for i in range(5):
@@ -68,6 +69,16 @@ def calibrate_camera_still(calib_images,  grid_size = (6,9), imshow = True, dela
 	if len(objpoints) > 0 and len(imgpoints) > 0:
 		ret, mtx, dist, rvecs, tvecs = cv2.calibrateCamera(objpoints, imgpoints, gray.shape[::-1], None, None)
 		calib_params = {"ret" : ret, "mtx" : mtx, "dist" : dist, "rvecs" : rvecs, "tvecs" : tvecs}
+		
+		total_error = 0
+		for i in xrange(len(objpoints)):
+			imgpoints2, _ = cv2.projectPoints(objpoints[i], rvecs[i], tvecs[i], mtx, dist)
+			error = cv2.norm(imgpoints[i],imgpoints2, cv2.NORM_L2)/len(imgpoints2)
+			total_error += error 
+		mean_error = total_error/len(objpoints)
+
+		print "Calibration successful! Mean error: ", mean_error
+
 	else:
 		print "No calibration points found!"
 		calib_params = None
@@ -108,7 +119,9 @@ def undistort_image(image, calib_params, crop = True):
 	newcameramtx, roi = cv2.getOptimalNewCameraMatrix(mtx, dist, (w,h), 1, (w,h))
 
 	# undistort
-	dst = cv2.undistort(img, mtx, dist, None, newcameramtx)
+	mapx, mapy = cv2.initUndistortRectifyMap(mtx, dist, None, newcameramtx, (w,h), 5)
+	dst = cv2.remap(img, mapx, mapy, cv2.INTER_LINEAR)
+
 
 	# crop the image
 	if crop:
